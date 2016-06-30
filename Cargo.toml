@@ -5,7 +5,6 @@ authors = ["Vibhav Pant <vibhavp@gmail.com>"]
 license = "MIT"
 
 [dependencies]
-ws = "0.5.0"
 hyper = "0.9.5"
 rand = "0.3"
 url = "1.1.1"
