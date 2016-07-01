@@ -51,7 +51,7 @@ impl Packet {
         }
 
         let mut cur = 0;
-        let mut data = Vec::with_capacity(bytes.len()-1);
+        let mut data = Vec::with_capacity(bytes.len()-data_len-2);
 
         while cur < data_len {
             data.push(bytes.next().unwrap());
@@ -77,18 +77,14 @@ impl Packet {
         let mut vec = Vec::new();
 
         vec.push(self.id as u8);
-        for b in &self.data {
-            vec.push(*b)
-        }
+        vec.extend_from_slice(self.data.as_slice());
 
         vec
     }
 
     pub fn encode_to(&self, v: &mut Vec<u8>) {
         v.push(self.id as u8);
-        for b in &self.data {
-            v.push(*b)
-        }
+        v.extend_from_slice(self.data.as_slice());
     }
 
     fn open_json(sid: String, ping_timeout: Duration) -> Packet {
@@ -115,9 +111,7 @@ pub fn encode_payload(packets: &Vec<Packet>, jsonp_index: Option<i32>, b64: bool
     let mut jsonp = false;
 
     jsonp_index.map(|index| {
-        for c in format!("__eio[{}](",index).as_bytes() {
-            data.push(*c);
-        }
+        data.extend_from_slice(format!("__eio[{}](",index).as_bytes());
         jsonp = true;
     });
 
