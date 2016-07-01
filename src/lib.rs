@@ -1,7 +1,8 @@
 extern crate hyper;
 extern crate rand;
 extern crate url;
-extern crate rustc_serialize;
+extern crate rustc_serialize as serialize;
+extern crate crypto;
 
 mod packet;
 pub mod server;

@@ -1,10 +1,13 @@
 use std::str;
 use std::vec::IntoIter;
 use std::time::Duration;
+
 use hyper::server::request::Request;
 use rand::os::OsRng;
 use rand::Rng;
-use rustc_serialize::base64::{ToBase64, Config, CharacterSet, Newline};
+use serialize::base64::{ToBase64, Config, CharacterSet, Newline};
+use crypto::sha2::Sha256;
+use crypto::digest::Digest;
 
 #[derive(Copy, Clone)]
 pub enum ID {
@@ -89,17 +92,21 @@ impl Packet {
     }
 
     fn open_json(sid: String, ping_timeout: Duration) -> Packet {
-        let data: String =
-            format!("{{\"sid\": {}, \"upgrades\": {}, \"pingTimeout\": {}}}", sid,
-                    "websocket", ping_timeout.as_secs() * 1000);
         Packet{
             id: ID::Open,
-            data: data.into_bytes(),
+            data: format!("{{\"sid\": {}, \"upgrades\": {}, \"pingTimeout\": {}}}",
+                          sid,
+                          "websocket",
+                          ping_timeout.as_secs() * 1000)
+                .into_bytes(),
         }
     }
 
     pub fn generate_id(r: &Request) -> String {
-        format!("{}{}", r.remote_addr, OsRng::new().unwrap().next_u64())
+        let mut hasher = Sha256::new();
+        hasher.input_str(format!("{}{}", r.remote_addr,
+                                 OsRng::new().unwrap().next_u32()).as_str());
+        hasher.result_str()
     }
 }
 
