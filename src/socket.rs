@@ -3,20 +3,20 @@ use std::sync::{RwLock, Mutex};
 use std::str::FromStr;
 use std::borrow::Cow;
 use url::Url;
-use client::Client;
+use client::Transport;
 use packet::Packet;
 
-pub struct Socket<C: Client> {
+pub struct Socket<C: Transport> {
     sid: String,
     last_pong: Instant,
     //sender: RwLock<Sender>,
-    client: Mutex<C>,
+    transport: Mutex<C>,
     b64: bool,
     on_close: RwLock<Option<Box<Fn(&str) + 'static>>>,
     on_message: RwLock<Option<Box<Fn(Vec<u8>) + 'static>>>
 }
 
-impl<C: Client> Socket<C> {
+impl<C: Transport> Socket<C> {
     // pub fn new(sid: String, sender: Sender) -> Socket {
     //     Socket{
     //         sid: sid,
@@ -34,11 +34,11 @@ impl<C: Client> Socket<C> {
     // }
 
     pub fn close(&mut self) {
-        self.client.lock().unwrap().close();
+        self.transport.lock().unwrap().close();
     }
     
     pub fn emit(&mut self, data: Packet) {
-        self.client.lock().unwrap().send(data)
+        self.transport.lock().unwrap().send(data)
     }
 
     /// Set callback for when the client is disconnected

@@ -5,11 +5,11 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use socket::Socket;
-use client::Client;
+use client::Transport;
 use packet::{Packet, ID};
 use url::Url;
 
-pub struct Server<A: ToSocketAddrs, C: Client> {
+pub struct Server<A: ToSocketAddrs, C: Transport> {
     addr: A,
     clients: Arc<RwLock<Vec<Socket<C>>>>,
     on_connection: RwLock<Option<Box<Fn(Socket<C>) + 'static>>>,
@@ -19,7 +19,7 @@ pub struct Server<A: ToSocketAddrs, C: Client> {
 const CLOSE: [u8; 5] = [99, 108, 111, 115, 101];
 //                     'c'  'l'  'o'  's'  'e'
 
-impl<A: ToSocketAddrs, C: Client> Server<A, C> {
+impl<A: ToSocketAddrs, C: Transport> Server<A, C> {
     pub fn new_with_timeout(addr: A, timeout: Duration) -> Server<A, C> {
         Server {
             addr: addr,

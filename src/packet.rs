@@ -1,4 +1,5 @@
 use std::str;
+use std::vec::IntoIter;
 use std::time::Duration;
 use hyper::server::request::Request;
 use rand::os::OsRng;
@@ -23,25 +24,35 @@ pub struct Packet {
 
 pub enum Error {
     InvalidPacketID(u8),
+    IncompletePacket,
     Utf8Error(str::Utf8Error),
 }
 
 impl Packet {
-    pub fn from_bytes(bytes: &[u8]) -> Result<Packet, Error> {
-        let id = match bytes[0] {
-            0 => ID::Open,
-            1 => ID::Close,
-            2 => ID::Ping,
-            3 => ID::Pong,
-            4 => ID::Message,
-            5 => ID::Upgrade,
-            6 => ID::Noop,
-            _ => return Err(Error::InvalidPacketID(bytes[0]))
-        };
+    fn from_bytes(bytes: &mut IntoIter<u8>, data_len: usize) -> Result<Packet, Error> {
+        let id;
+        match bytes.next() {
+            None => return Err(Error::IncompletePacket),
+            Some(n) => {
+               id = match n {
+                   0 => ID::Open,
+                   1 => ID::Close,
+                   2 => ID::Ping,
+                   3 => ID::Pong,
+                   4 => ID::Message,
+                   5 => ID::Upgrade,
+                   6 => ID::Noop,
+                   _ => return Err(Error::InvalidPacketID(n))
+               };
+            }
+        }
 
+        let mut cur = 0;
         let mut data = Vec::with_capacity(bytes.len()-1);
-        for b in bytes.iter().skip(1) {
-            data.push(*b)
+
+        while cur < data_len {
+            data.push(bytes.next().unwrap());
+            cur +=1;
         }
 
         Ok(Packet{
@@ -77,9 +88,14 @@ impl Packet {
         }
     }
 
-    fn open_json(sid: String, ping_timeout: Duration) -> String {
-        format!("{{\"sid\": {}, \"upgrades\": {}, \"pingTimeout\": {}}}", sid,
-                "websocket", ping_timeout.as_secs() * 1000)
+    fn open_json(sid: String, ping_timeout: Duration) -> Packet {
+        let data: String =
+            format!("{{\"sid\": {}, \"upgrades\": {}, \"pingTimeout\": {}}}", sid,
+                    "websocket", ping_timeout.as_secs() * 1000);
+        Packet{
+            id: ID::Open,
+            data: data.into_bytes(),
+        }
     }
 
     pub fn generate_id(r: &Request) -> String {
@@ -87,15 +103,7 @@ impl Packet {
     }
 }
 
-/// Encode a series of packets, for polling and flashsocket transports.
-///
-/// # Arguments:
-///
-/// * `packets`: A vector of packets to be encoded together.
-/// * `jsonp_index`: JSONP response index, if any.
-/// * `b64`: true if binary packets are to be encoded in base64.
-/// * `xhr2`: true if the packets are to be encoded with XHR2 support.
-pub fn encode_payload(packets: Vec<Packet>, jsonp_index: Option<i32>, b64: bool, xhr2: bool) -> Vec<u8> {
+pub fn encode_payload(packets: &Vec<Packet>, jsonp_index: Option<i32>, b64: bool, xhr2: bool) -> Vec<u8> {
     let mut data = Vec::new();
     let mut jsonp = false;
 
@@ -119,6 +127,7 @@ pub fn encode_payload(packets: Vec<Packet>, jsonp_index: Option<i32>, b64: bool,
             }
             data.push(':' as u8);
             data.push('b' as u8);
+            data.push(packet.id as u8);
             data.extend_from_slice(base64_data.as_bytes());
         } else {
             if xhr2 {
@@ -140,4 +149,48 @@ pub fn encode_payload(packets: Vec<Packet>, jsonp_index: Option<i32>, b64: bool,
     }
 
     data
+}
+
+pub fn decode_payload(data: Vec<u8>, b64: bool, xhr2: bool)
+                      -> Option<Vec<Packet>> {
+    if data.len() == 0 {
+        return None;
+    }
+
+    let mut packets = Vec::new();
+    let mut parsing_length = true;
+
+    if xhr2 {
+
+    } else if b64 {
+
+    } else {
+        let mut len: usize = 0;
+        let mut data_iter: IntoIter<u8> = data.into_iter();
+        while let Some(c) = data_iter.next() {
+            if c as char == ':' {
+                parsing_length = false;
+                //Check for incomplete payload
+                if data_iter.len() < len {return None}
+                if let Ok(packet) = Packet::from_bytes(&mut data_iter, len) {
+                    packets.push(packet);
+                } else {return None}
+            } else {
+                parsing_length = true;
+                if let Some(n) = (c as char).to_digit(10) {
+                    if n > 9 {return None};
+                    len = (len*10) + n as usize;
+                } else {
+                    //Invalid length character
+                    return None
+                }
+            }
+        }
+    }
+
+    if parsing_length {
+        None
+    } else {
+        Some(packets)
+    }
 }

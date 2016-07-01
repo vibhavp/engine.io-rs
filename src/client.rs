@@ -1,10 +1,11 @@
 use std::sync::{Arc, RwLock};
 
-use packet::Packet;
+use packet::{Packet, encode_payload};
 use hyper::server::{Handler, Request, Response};
 use hyper::method::Method;
+use std::ops::Deref;
 
-pub trait Client {
+pub trait Transport {
     fn send(&mut self, Packet);
     fn receive(&mut self) -> Packet;
     fn close(&mut self);
@@ -12,20 +13,24 @@ pub trait Client {
 
 pub struct Polling {
     data: Arc<RwLock<Vec<Packet>>>,
-    jsonp: bool,
+    jsonp: Option<i32>,
     b64: bool,
+    xhr2: bool,
 }
 
 impl Handler for Polling {
     fn handle(&self, req: Request, res: Response) {
         match req.method {
             Method::Get => {
-                let queue = self.data.clone();
-                let mut data = Vec::new();
-                for packet in queue.read().unwrap().iter() {
-                    packet.encode_to(&mut data);
-                }
+                let d = self.data.clone();
+                let mut packets = d.write().unwrap();
+                res.send(encode_payload(packets.deref(), self.jsonp, self.b64,
+                                        self.xhr2).as_slice());
+                packets.clear();
             },
+            Method::Post => {
+                
+            }
             _ => {}
         }
     }
