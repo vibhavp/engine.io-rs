@@ -141,7 +141,7 @@ pub fn encode_payload(packets: &Vec<Packet>, jsonp_index: Option<i32>, b64: bool
                 data.push(c.to_digit(10).unwrap() as u8);
             }
             data.push(':' as u8);
-            data.extend_from_slice(packet.encode().as_slice());
+            packet.encode_to(&mut data);
         }
     }
 
