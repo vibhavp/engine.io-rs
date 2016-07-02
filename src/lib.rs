@@ -7,7 +7,9 @@ extern crate crypto;
 mod packet;
 pub mod server;
 mod socket;
-mod client;
+pub mod transport;
+pub mod polling;
+
 
 #[cfg(test)]
 mod tests {

@@ -3,7 +3,7 @@ use std::sync::{RwLock, Mutex};
 use std::str::FromStr;
 use std::borrow::Cow;
 use url::Url;
-use client::Transport;
+use transport::Transport;
 use packet::Packet;
 
 pub struct Socket<C: Transport> {
@@ -36,7 +36,7 @@ impl<C: Transport> Socket<C> {
     pub fn close(&mut self) {
         self.transport.lock().unwrap().close();
     }
-    
+
     pub fn emit(&mut self, data: Packet) {
         self.transport.lock().unwrap().send(data)
     }

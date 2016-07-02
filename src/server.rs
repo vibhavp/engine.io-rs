@@ -5,7 +5,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use socket::Socket;
-use client::Transport;
+use transport::Transport;
 use packet::{Packet, ID};
 use url::Url;
 

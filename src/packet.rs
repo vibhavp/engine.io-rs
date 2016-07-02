@@ -1,6 +1,8 @@
 use std::str;
 use std::vec::IntoIter;
 use std::time::Duration;
+use std::fmt;
+use std::fmt::{Display, Debug, Formatter};
 
 use hyper::server::request::Request;
 use rand::os::OsRng;
@@ -9,7 +11,7 @@ use serialize::base64::{ToBase64, Config, CharacterSet, Newline};
 use crypto::sha2::Sha256;
 use crypto::digest::Digest;
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub enum ID {
     Open = 0,
     Close = 1,
@@ -27,8 +29,23 @@ pub struct Packet {
 
 pub enum Error {
     InvalidPacketID(u8),
+    InvalidLengthDigit(u32),
+    InvalidLengthCharacter(u8),
     IncompletePacket,
+    EmptyPacket,
     Utf8Error(str::Utf8Error),
+}
+
+impl Display for Error {
+  fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    match self {
+            &Error::InvalidPacketID(id) => write!(f, "Invalid Packet ID: {}", id),
+            &Error::IncompletePacket => write!(f, "Incomplete Packet"),
+            &Error::EmptyPacket => write!(f, "Empty Packet"),
+            &Error::Utf8Error(e) => write!(f, "Utf8Error: {}", e),
+	    _ => {write!(f, "oops")},
+}
+  }
 }
 
 impl Packet {
@@ -106,14 +123,15 @@ impl Packet {
     }
 }
 
-pub fn encode_payload(packets: &Vec<Packet>, jsonp_index: Option<i32>, b64: bool, xhr2: bool) -> Vec<u8> {
+pub fn encode_payload(packets: &Vec<Packet>, jsonp_index: Option<i32>,
+                      b64: bool, xhr2: bool) -> Vec<u8> {
     let mut data = Vec::new();
     let mut jsonp = false;
 
-    jsonp_index.map(|index| {
+    if let Some(index) = jsonp_index {
         data.extend_from_slice(format!("__eio[{}](",index).as_bytes());
         jsonp = true;
-    });
+    }
 
     for packet in packets {
         if b64 {
@@ -153,9 +171,9 @@ pub fn encode_payload(packets: &Vec<Packet>, jsonp_index: Option<i32>, b64: bool
 }
 
 pub fn decode_payload(data: Vec<u8>, b64: bool, xhr2: bool)
-                      -> Option<Vec<Packet>> {
+                      -> Result<Vec<Packet>, Error> {
     if data.len() == 0 {
-        return None;
+        return Err(Error::EmptyPacket);
     }
 
     let mut packets = Vec::new();
@@ -172,26 +190,29 @@ pub fn decode_payload(data: Vec<u8>, b64: bool, xhr2: bool)
             if c as char == ':' {
                 parsing_length = false;
                 //Check for incomplete payload
-                if data_iter.len() < len {return None}
-                if let Ok(packet) = Packet::from_bytes(&mut data_iter, len) {
-                    packets.push(packet);
-                } else {return None}
+                if data_iter.len() < len {return Err(Error::IncompletePacket)}
+                //if let Ok(packet) = Packet::from_bytes(&mut data_iter, len) {
+                //    packets.push(packet);
+                //} else {return }
+                packets.push(try!(Packet::from_bytes(&mut data_iter, len)));
             } else {
                 parsing_length = true;
                 if let Some(n) = (c as char).to_digit(10) {
-                    if n > 9 {return None};
+                    if n > 9 {
+		       return Err(Error::InvalidLengthDigit(n));
+		    };
                     len = (len*10) + n as usize;
                 } else {
                     //Invalid length character
-                    return None
+                    return Err(Error::InvalidLengthCharacter(c))
                 }
             }
         }
     }
 
     if parsing_length {
-        None
+        Err(Error::IncompletePacket)
     } else {
-        Some(packets)
+        Ok(packets)
     }
 }
