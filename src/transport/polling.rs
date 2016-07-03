@@ -1,8 +1,9 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Condvar};
 use std::io::Read;
 use std::ops::Deref;
 
 use packet::{Packet, encode_payload, decode_payload};
+use transport::Transport;
 use hyper::server::{Handler, Request, Response};
 use hyper::method::Method;
 use hyper::status::StatusCode;
@@ -37,7 +38,7 @@ impl Handler for Polling {
                     recv.append(&mut res);
                   }
               }
-            }
+            },
             _ => {
               // invalid method
               let mut code = res.status_mut();
@@ -45,4 +46,32 @@ impl Handler for Polling {
           },
         }
     }
+}
+
+impl Transport for Polling {
+  fn name(&self) -> &'static str {
+    "polling"
+  }
+
+  fn send(&self, packet: Packet) {
+    let d = self.send.clone();
+    let mut send = d.lock().unwrap();
+    send.push(packet);
+  }
+
+  fn receive(&self) -> Option<Packet> {
+    let d = self.recv.clone();
+    let mut recv = d.lock().unwrap();
+    recv.pop()
+  }
+
+  fn receive_all(&self) -> Vec<Packet> {
+    let d = self.recv.clone();
+    let mut recv = d.lock().unwrap();
+    recv.clone()
+  }
+
+  fn close(&self) {
+
+  }
 }

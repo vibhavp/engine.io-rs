@@ -1,7 +1,6 @@
 use std::time::Instant;
 use std::sync::{RwLock, Mutex};
 use std::str::FromStr;
-use std::borrow::Cow;
 use url::Url;
 use transport::Transport;
 use packet::Packet;
@@ -9,7 +8,6 @@ use packet::Packet;
 pub struct Socket<C: Transport> {
     sid: String,
     last_pong: Instant,
-    //sender: RwLock<Sender>,
     transport: Mutex<C>,
     b64: bool,
     on_close: RwLock<Option<Box<Fn(&str) + 'static>>>,
@@ -27,6 +25,10 @@ impl<C: Transport> Socket<C> {
     //         on_message: RwLock::new(None),
     //     }
     // }
+
+    pub fn new(sid: String, transport: C) {
+
+  }
 
     /// Disconnects the client
     // pub fn close(&mut self) -> Result<()> {

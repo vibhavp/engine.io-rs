@@ -7,7 +7,8 @@ use std::fmt::{Display, Debug, Formatter};
 use hyper::server::request::Request;
 use rand::os::OsRng;
 use rand::Rng;
-use serialize::base64::{ToBase64, Config, CharacterSet, Newline};
+use serialize::base64::{FromBase64, ToBase64, Config, CharacterSet, Newline,
+  FromBase64Error};
 use crypto::sha2::Sha256;
 use crypto::digest::Digest;
 
@@ -22,6 +23,7 @@ pub enum ID {
     Noop = 6,
 }
 
+#[derive(Clone)]
 pub struct Packet {
     id: ID,
     data: Vec<u8>,
@@ -33,6 +35,7 @@ pub enum Error {
     InvalidLengthCharacter(u8),
     IncompletePacket,
     EmptyPacket,
+    FromBase64Error(FromBase64Error),
     Utf8Error(str::Utf8Error),
 }
 
@@ -44,30 +47,43 @@ impl Display for Error {
             &Error::InvalidLengthCharacter(d) => write!(f, "Invalid length character: {}", d),
             &Error::IncompletePacket => write!(f, "Incomplete Packet"),
             &Error::EmptyPacket => write!(f, "Empty Packet"),
+            &Error::FromBase64Error(e) => write!(f, "FromBase64Error: {}", e),
             &Error::Utf8Error(e) => write!(f, "Utf8Error: {}", e),
 	          //_ => {write!(f, "oops")},
 }
   }
 }
 
+fn u8_to_ID(u: u8) -> Result<ID, Error> {
+  match u {
+    0 => Ok(ID::Open),
+    1 => Ok(ID::Close),
+    2 => Ok(ID::Ping),
+    3 => Ok(ID::Pong),
+    4 => Ok(ID::Message),
+    5 => Ok(ID::Upgrade),
+    6 => Ok(ID::Noop),
+    _ => Err(Error::InvalidPacketID(u))
+  }
+}
+
 impl Packet {
     fn from_bytes(bytes: &mut IntoIter<u8>, data_len: usize) -> Result<Packet, Error> {
         let id;
+        let mut base64 = false;
         match bytes.next() {
             None => return Err(Error::IncompletePacket),
-            Some(n) => {
-               id = match n {
-                   0 => ID::Open,
-                   1 => ID::Close,
-                   2 => ID::Ping,
-                   3 => ID::Pong,
-                   4 => ID::Message,
-                   5 => ID::Upgrade,
-                   6 => ID::Noop,
-                   _ => return Err(Error::InvalidPacketID(n))
-               };
+            Some(n) =>  {
+              id = if n as char == 'b' { //base64
+                 base64 = true;
+                 match bytes.next() {
+                   None => return Err(Error::IncompletePacket),
+                   Some(n) => try!(u8_to_ID(n))
+                 }
+              } else {
+                  try!(u8_to_ID(n))
+          }}
             }
-        }
 
         let mut cur = 0;
         let mut data = Vec::with_capacity(bytes.len()-data_len-2);
@@ -79,7 +95,9 @@ impl Packet {
 
         Ok(Packet{
             id: id,
-            data: data
+            data: if base64 {
+              try!(data.from_base64().map_err(|e| Error::FromBase64Error(e)))
+          } else {data}
         })
     }
 
@@ -136,7 +154,7 @@ pub fn encode_payload(packets: &Vec<Packet>, jsonp_index: Option<i32>,
     }
 
     for packet in packets {
-        if b64 {
+        if b64 || (!xhr2 && packet.is_binary()) {
             let base64_data = packet.data.to_base64(Config{
                 char_set: CharacterSet::UrlSafe,
                 newline: Newline::LF,
@@ -157,7 +175,7 @@ pub fn encode_payload(packets: &Vec<Packet>, jsonp_index: Option<i32>,
                 data.push(255);
             }
 
-            for c in packet.data.len().to_string().chars() {
+            for c in (packet.data.len() + 1).to_string().chars() {
                 data.push(c.to_digit(10).unwrap() as u8);
             }
             data.push(':' as u8);
@@ -182,8 +200,6 @@ pub fn decode_payload(data: Vec<u8>, b64: bool, xhr2: bool)
     let mut parsing_length = true;
 
     if xhr2 {
-
-    } else if b64 {
 
     } else {
         let mut len: usize = 0;
