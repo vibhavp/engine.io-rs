@@ -40,10 +40,12 @@ impl Display for Error {
   fn fmt(&self, f: &mut Formatter) -> fmt::Result {
     match self {
             &Error::InvalidPacketID(id) => write!(f, "Invalid Packet ID: {}", id),
+            &Error::InvalidLengthDigit(d) => write!(f, "Invalid length digit: {}", d),
+            &Error::InvalidLengthCharacter(d) => write!(f, "Invalid length character: {}", d),
             &Error::IncompletePacket => write!(f, "Incomplete Packet"),
             &Error::EmptyPacket => write!(f, "Empty Packet"),
             &Error::Utf8Error(e) => write!(f, "Utf8Error: {}", e),
-	    _ => {write!(f, "oops")},
+	          //_ => {write!(f, "oops")},
 }
   }
 }
@@ -190,10 +192,10 @@ pub fn decode_payload(data: Vec<u8>, b64: bool, xhr2: bool)
             if c as char == ':' {
                 parsing_length = false;
                 //Check for incomplete payload
-                if data_iter.len() < len {return Err(Error::IncompletePacket)}
-                //if let Ok(packet) = Packet::from_bytes(&mut data_iter, len) {
-                //    packets.push(packet);
-                //} else {return }
+                if data_iter.len() < len {
+                  return Err(Error::IncompletePacket);
+                }
+
                 packets.push(try!(Packet::from_bytes(&mut data_iter, len)));
             } else {
                 parsing_length = true;

@@ -8,8 +8,6 @@ mod packet;
 pub mod server;
 mod socket;
 pub mod transport;
-pub mod polling;
-
 
 #[cfg(test)]
 mod tests {
