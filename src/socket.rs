@@ -1,5 +1,5 @@
 use std::time::Instant;
-use std::sync::{RwLock, Mutex};
+use std::sync::{RwLock, Mutex, Arc};
 use std::str::FromStr;
 use url::Url;
 use transport::Transport;
@@ -11,7 +11,9 @@ pub struct Socket<C: Transport> {
     transport: Mutex<C>,
     b64: bool,
     on_close: RwLock<Option<Box<Fn(&str) + 'static>>>,
-    on_message: RwLock<Option<Box<Fn(Vec<u8>) + 'static>>>
+    on_message: RwLock<Option<Box<Fn(Vec<u8>) + 'static>>>,
+    send: Arc<Mutex<Vec<Packet>>>,
+    recv: Arc<Mutex<Vec<Packet>>>,
 }
 
 impl<C: Transport> Socket<C> {
@@ -26,9 +28,7 @@ impl<C: Transport> Socket<C> {
     //     }
     // }
 
-    pub fn new(sid: String, transport: C) {
-
-  }
+    pub fn new(sid: String, transport: C) {}
 
     /// Disconnects the client
     // pub fn close(&mut self) -> Result<()> {
@@ -45,7 +45,8 @@ impl<C: Transport> Socket<C> {
 
     /// Set callback for when the client is disconnected
     pub fn on_close<F>(&mut self, f: F)
-        where F: Fn(&str) + 'static {
+        where F: Fn(&str) + 'static
+    {
         let mut data = self.on_close.write().unwrap();
         if let Some(ref b) = *data {
             drop(b);
@@ -55,7 +56,8 @@ impl<C: Transport> Socket<C> {
 
     /// Set callback for when client sends a message
     pub fn on_message<F>(&mut self, f: F)
-        where F: Fn(Vec<u8>) + 'static {
+        where F: Fn(Vec<u8>) + 'static
+    {
         let mut data = self.on_message.write().unwrap();
         if let Some(ref b) = *data {
             drop(b);

@@ -7,8 +7,7 @@ use std::fmt::{Display, Debug, Formatter};
 use hyper::server::request::Request;
 use rand::os::OsRng;
 use rand::Rng;
-use serialize::base64::{FromBase64, ToBase64, Config, CharacterSet, Newline,
-  FromBase64Error};
+use serialize::base64::{FromBase64, ToBase64, Config, CharacterSet, Newline, FromBase64Error};
 use crypto::sha2::Sha256;
 use crypto::digest::Digest;
 
@@ -40,8 +39,8 @@ pub enum Error {
 }
 
 impl Display for Error {
-  fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-    match self {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
             &Error::InvalidPacketID(id) => write!(f, "Invalid Packet ID: {}", id),
             &Error::InvalidLengthDigit(d) => write!(f, "Invalid length digit: {}", d),
             &Error::InvalidLengthCharacter(d) => write!(f, "Invalid length character: {}", d),
@@ -49,22 +48,22 @@ impl Display for Error {
             &Error::EmptyPacket => write!(f, "Empty Packet"),
             &Error::FromBase64Error(e) => write!(f, "FromBase64Error: {}", e),
             &Error::Utf8Error(e) => write!(f, "Utf8Error: {}", e),
-	          //_ => {write!(f, "oops")},
-}
-  }
+            // _ => {write!(f, "oops")},
+        }
+    }
 }
 
 fn u8_to_ID(u: u8) -> Result<ID, Error> {
-  match u {
-    0 => Ok(ID::Open),
-    1 => Ok(ID::Close),
-    2 => Ok(ID::Ping),
-    3 => Ok(ID::Pong),
-    4 => Ok(ID::Message),
-    5 => Ok(ID::Upgrade),
-    6 => Ok(ID::Noop),
-    _ => Err(Error::InvalidPacketID(u))
-  }
+    match u {
+        0 => Ok(ID::Open),
+        1 => Ok(ID::Close),
+        2 => Ok(ID::Ping),
+        3 => Ok(ID::Pong),
+        4 => Ok(ID::Message),
+        5 => Ok(ID::Upgrade),
+        6 => Ok(ID::Noop),
+        _ => Err(Error::InvalidPacketID(u)),
+    }
 }
 
 impl Packet {
@@ -73,38 +72,42 @@ impl Packet {
         let mut base64 = false;
         match bytes.next() {
             None => return Err(Error::IncompletePacket),
-            Some(n) =>  {
-              id = if n as char == 'b' { //base64
-                 base64 = true;
-                 match bytes.next() {
-                   None => return Err(Error::IncompletePacket),
-                   Some(n) => try!(u8_to_ID(n))
-                 }
-              } else {
-                  try!(u8_to_ID(n))
-          }}
+            Some(n) => {
+                id = if n as char == 'b' {
+                    // base64
+                    base64 = true;
+                    match bytes.next() {
+                        None => return Err(Error::IncompletePacket),
+                        Some(n) => try!(u8_to_ID(n)),
+                    }
+                } else {
+                    try!(u8_to_ID(n))
+                }
             }
+        }
 
         let mut cur = 0;
-        let mut data = Vec::with_capacity(bytes.len()-data_len-2);
+        let mut data = Vec::with_capacity(bytes.len() - data_len - 2);
 
         while cur < data_len {
             data.push(bytes.next().unwrap());
-            cur +=1;
+            cur += 1;
         }
 
-        Ok(Packet{
+        Ok(Packet {
             id: id,
             data: if base64 {
-              try!(data.from_base64().map_err(|e| Error::FromBase64Error(e)))
-          } else {data}
+                try!(data.from_base64().map_err(|e| Error::FromBase64Error(e)))
+            } else {
+                data
+            },
         })
     }
 
     fn is_binary(&self) -> bool {
         for c in &self.data {
             if *c < 'a' as u8 || *c > 'Z' as u8 {
-                return true
+                return true;
             }
         }
         false
@@ -125,7 +128,7 @@ impl Packet {
     }
 
     fn open_json(sid: String, ping_timeout: Duration) -> Packet {
-        Packet{
+        Packet {
             id: ID::Open,
             data: format!("{{\"sid\": {}, \"upgrades\": {}, \"pingTimeout\": {}}}",
                           sid,
@@ -137,25 +140,27 @@ impl Packet {
 
     pub fn generate_id(r: &Request) -> String {
         let mut hasher = Sha256::new();
-        hasher.input_str(format!("{}{}", r.remote_addr,
-                                 OsRng::new().unwrap().next_u32()).as_str());
+        hasher.input_str(format!("{}{}", r.remote_addr, OsRng::new().unwrap().next_u32()).as_str());
         hasher.result_str()
     }
 }
 
-pub fn encode_payload(packets: &Vec<Packet>, jsonp_index: Option<i32>,
-                      b64: bool, xhr2: bool) -> Vec<u8> {
+pub fn encode_payload(packets: &Vec<Packet>,
+                      jsonp_index: Option<i32>,
+                      b64: bool,
+                      xhr2: bool)
+                      -> Vec<u8> {
     let mut data = Vec::new();
     let mut jsonp = false;
 
     if let Some(index) = jsonp_index {
-        data.extend_from_slice(format!("__eio[{}](",index).as_bytes());
+        data.extend_from_slice(format!("__eio[{}](", index).as_bytes());
         jsonp = true;
     }
 
     for packet in packets {
         if b64 || (!xhr2 && packet.is_binary()) {
-            let base64_data = packet.data.to_base64(Config{
+            let base64_data = packet.data.to_base64(Config {
                 char_set: CharacterSet::UrlSafe,
                 newline: Newline::LF,
                 pad: true,
@@ -190,8 +195,7 @@ pub fn encode_payload(packets: &Vec<Packet>, jsonp_index: Option<i32>,
     data
 }
 
-pub fn decode_payload(data: Vec<u8>, b64: bool, xhr2: bool)
-                      -> Result<Vec<Packet>, Error> {
+pub fn decode_payload(data: Vec<u8>, b64: bool, xhr2: bool) -> Result<Vec<Packet>, Error> {
     if data.len() == 0 {
         return Err(Error::EmptyPacket);
     }
@@ -207,9 +211,9 @@ pub fn decode_payload(data: Vec<u8>, b64: bool, xhr2: bool)
         while let Some(c) = data_iter.next() {
             if c as char == ':' {
                 parsing_length = false;
-                //Check for incomplete payload
+                // Check for incomplete payload
                 if data_iter.len() < len {
-                  return Err(Error::IncompletePacket);
+                    return Err(Error::IncompletePacket);
                 }
 
                 packets.push(try!(Packet::from_bytes(&mut data_iter, len)));
@@ -217,12 +221,12 @@ pub fn decode_payload(data: Vec<u8>, b64: bool, xhr2: bool)
                 parsing_length = true;
                 if let Some(n) = (c as char).to_digit(10) {
                     if n > 9 {
-		       return Err(Error::InvalidLengthDigit(n));
-		    };
-                    len = (len*10) + n as usize;
+                        return Err(Error::InvalidLengthDigit(n));
+                    };
+                    len = (len * 10) + n as usize;
                 } else {
-                    //Invalid length character
-                    return Err(Error::InvalidLengthCharacter(c))
+                    // Invalid length character
+                    return Err(Error::InvalidLengthCharacter(c));
                 }
             }
         }
