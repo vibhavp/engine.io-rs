@@ -5,8 +5,9 @@ authors = ["Vibhav Pant <vibhavp@gmail.com>"]
 license = "MIT"
 
 [dependencies]
-hyper = "0.9.5"
+iron = "0.4.0"
 rand = "0.3"
 url = "1.1.1"
 rust-crypto = "0.2.36"
 rustc-serialize = "0.3"
+modifier = "0.1.0"

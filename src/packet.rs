@@ -4,14 +4,16 @@ use std::time::Duration;
 use std::fmt;
 use std::fmt::{Display, Debug, Formatter};
 
-use hyper::server::request::Request;
 use rand::os::OsRng;
+use iron::request::Request;
+use iron::response::Response;
 use rand::Rng;
 use serialize::base64::{FromBase64, ToBase64, Config, CharacterSet, Newline, FromBase64Error};
 use crypto::sha2::Sha256;
 use crypto::digest::Digest;
+use modifier::Modifier;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum ID {
     Open = 0,
     Close = 1,
@@ -24,10 +26,11 @@ pub enum ID {
 
 #[derive(Clone)]
 pub struct Packet {
-    id: ID,
-    data: Vec<u8>,
+    pub id: ID,
+    pub data: Vec<u8>,
 }
 
+#[derive(Debug)]
 pub enum Error {
     InvalidPacketID(u8),
     InvalidLengthDigit(u32),
@@ -145,11 +148,14 @@ impl Packet {
     }
 }
 
+#[derive(Clone)]
+pub struct Payload(pub Vec<u8>);
+
 pub fn encode_payload(packets: &Vec<Packet>,
                       jsonp_index: Option<i32>,
                       b64: bool,
                       xhr2: bool)
-                      -> Vec<u8> {
+                      -> Payload {
     let mut data = Vec::new();
     let mut jsonp = false;
 
@@ -192,7 +198,7 @@ pub fn encode_payload(packets: &Vec<Packet>,
         data.push(')' as u8);
     }
 
-    data
+    Payload(data)
 }
 
 pub fn decode_payload(data: Vec<u8>, b64: bool, xhr2: bool) -> Result<Vec<Packet>, Error> {
@@ -236,5 +242,11 @@ pub fn decode_payload(data: Vec<u8>, b64: bool, xhr2: bool) -> Result<Vec<Packet
         Err(Error::IncompletePacket)
     } else {
         Ok(packets)
+    }
+}
+
+impl Modifier<Response> for Payload {
+    fn modify(self, r: &mut Response) {
+        r.body = Some(Box::new(self.0));
     }
 }

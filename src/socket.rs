@@ -1,50 +1,112 @@
 use std::time::Instant;
 use std::sync::{RwLock, Mutex, Arc};
-use std::str::FromStr;
-use url::Url;
-use transport::Transport;
-use packet::Packet;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::cell::Cell;
+use std::time;
 
-pub struct Socket<C: Transport> {
-    sid: String,
-    last_pong: Instant,
-    transport: Mutex<C>,
-    b64: bool,
-    on_close: RwLock<Option<Box<Fn(&str) + 'static>>>,
-    on_message: RwLock<Option<Box<Fn(Vec<u8>) + 'static>>>,
-    send: Arc<Mutex<Vec<Packet>>>,
-    recv: Arc<Mutex<Vec<Packet>>>,
+use packet::{Packet, ID, encode_payload, Payload};
+
+#[derive(Clone)]
+#[doc(hidden)]
+pub enum Transport {
+    Polling(Arc<Mutex<Vec<Packet>>>),
 }
 
-impl<C: Transport> Socket<C> {
-    // pub fn new(sid: String, sender: Sender) -> Socket {
-    //     Socket{
-    //         sid: sid,
-    //         last_pong: Instant::now(),
-    //         sender: RwLock::new(sender),
-    //         b64: false,
-    //         on_close: RwLock::new(None),
-    //         on_message: RwLock::new(None),
-    //     }
-    // }
+pub struct Socket {
+    transport: Transport,
+    sid: Arc<String>,
+    last_pong: Arc<RwLock<Instant>>,
+    closed: AtomicBool,
+    b64: bool,
+    xhr2: bool,
+    jsonp: Option<i32>,
+    on_close: Arc<RwLock<Option<Box<Fn(&str) + 'static>>>>,
+    on_message: Arc<RwLock<Option<Box<Fn(&Vec<u8>) + 'static>>>>,
+    on_packet: Arc<RwLock<Option<Box<Fn(Packet) + 'static>>>>,
+    on_flush: Arc<RwLock<Option<Box<Fn(Vec<Packet>) + 'static>>>>,
+}
 
-    pub fn new(sid: String, transport: C) {}
+unsafe impl Send for Socket {}
+unsafe impl Sync for Socket {}
 
-    /// Disconnects the client
-    // pub fn close(&mut self) -> Result<()> {
-    //     self.sender.write().unwrap().close(CloseCode::Away)
-    // }
-
-    pub fn close(&mut self) {
-        self.transport.lock().unwrap().close();
+impl Socket {
+    #[doc(hidden)]
+    pub fn new(transport: Transport,
+               b64: bool,
+               xhr2: bool,
+               sid: Arc<String>,
+               jsonp: Option<i32>)
+               -> Socket {
+        Socket {
+            transport: transport,
+            sid: sid,
+            last_pong: Arc::new(RwLock::new(Instant::now())),
+            closed: AtomicBool::new(false),
+            b64: b64,
+            jsonp: jsonp,
+            xhr2: xhr2,
+            on_close: Arc::new(RwLock::new(None)),
+            on_message: Arc::new(RwLock::new(None)),
+            on_packet: Arc::new(RwLock::new(None)),
+            on_flush: Arc::new(RwLock::new(None)),
+        }
     }
 
-    pub fn emit(&mut self, data: Packet) {
-        self.transport.lock().unwrap().send(data)
+    #[doc(hidden)]
+    pub fn reset_timeout(&self) {
+        *self.last_pong.write().unwrap() = Instant::now();
+    }
+
+    #[inline(always)]
+    pub fn b64(&self) -> bool {
+        self.b64
+    }
+
+    #[inline(always)]
+    pub fn xhr2(&self) -> bool {
+        self.xhr2
+    }
+
+    #[inline(always)]
+    pub fn close(&self) {
+        self.closed.store(false, Ordering::Relaxed);
+    }
+
+    #[inline(always)]
+    pub fn closed(&self) -> bool {
+        self.closed.load(Ordering::Relaxed)
+    }
+
+    pub fn emit(&self, data: Packet) {
+        match self.transport {
+            Transport::Polling(ref send_buf) => send_buf.lock().unwrap().push(data),
+        }
+    }
+
+    /// Set callback for when a packet is sent to the client (message, ping)
+    pub fn on_packet<F>(&self, f: F)
+        where F: Fn(&str) + 'static
+    {
+        let mut func = self.on_close.write().unwrap();
+        if let Some(ref b) = *func {
+            drop(b)
+        }
+        *func = Some(Box::new(f));
+    }
+
+    /// Set callback for when the write buffer is flushed
+    pub fn on_flush<F>(&self, f: F)
+        where F: Fn(Vec<Packet>) + 'static
+    {
+        let mut func = self.on_flush.write().unwrap();
+        if let Some(ref b) = *func {
+            drop(b)
+        }
+        *func = Some(Box::new(f))
     }
 
     /// Set callback for when the client is disconnected
-    pub fn on_close<F>(&mut self, f: F)
+    pub fn on_close<F>(&self, f: F)
         where F: Fn(&str) + 'static
     {
         let mut data = self.on_close.write().unwrap();
@@ -55,8 +117,8 @@ impl<C: Transport> Socket<C> {
     }
 
     /// Set callback for when client sends a message
-    pub fn on_message<F>(&mut self, f: F)
-        where F: Fn(Vec<u8>) + 'static
+    pub fn on_message<F>(&self, f: F)
+        where F: Fn(&Vec<u8>) + 'static
     {
         let mut data = self.on_message.write().unwrap();
         if let Some(ref b) = *data {
@@ -64,28 +126,32 @@ impl<C: Transport> Socket<C> {
         }
         *data = Some(Box::new(f));
     }
+
+    #[inline]
+    #[doc(hidden)]
+    pub fn call_on_message(&self, data: &Vec<u8>) {
+        if let Some(ref func) = *self.on_message.read().unwrap() {
+            func(data)
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn call_on_packet(&self, p: Packet) {
+        if let Some(ref func) = *self.on_packet.read().unwrap() {
+            func(p)
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn encode_write_buffer(&self) -> Payload {
+        let Transport::Polling(ref packets) = self.transport;
+        let data = packets.clone();
+        let vec = data.lock().unwrap();
+
+        encode_payload(&vec, self.jsonp, self.b64, self.xhr2)
+    }
+    // #[doc(hidden)]
+    // pub fn drain_write_buf(&self) -> Vec<Packet> {
+    //     let packets = self.
+    // }
 }
-
-
-// impl Handler for Socket {
-//     fn on_message(&mut self, msg: Message) -> Result<()> {
-//         self.on_message.read().unwrap().as_ref().map(|f| f(msg.into_data()));
-//         Ok(())
-//     }
-
-//     fn on_close(&mut self, code: CloseCode, reason: &str) {
-//         self.on_close.read().unwrap().as_ref().map(|f| f(reason));
-//     }
-
-//     fn on_request(&mut self, req: &Request) -> Result<Response> {
-//         let url = Url::from_str(req.resource()).unwrap();
-//         for (key, value) in url.query_pairs() {
-//             if key == "transport" && value != "websocket" {
-//                 return Err(Error::new(Kind::Internal, "unsupported/unknown transport"))
-//             }
-//         }
-
-//         Response::from_request(req)
-//     }
-
-// }

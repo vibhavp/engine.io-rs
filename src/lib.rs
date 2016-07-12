@@ -1,13 +1,14 @@
-extern crate hyper;
+#[macro_use]
+extern crate iron;
 extern crate rand;
 extern crate url;
 extern crate rustc_serialize as serialize;
 extern crate crypto;
+extern crate modifier;
 
-mod packet;
+pub mod packet;
 pub mod server;
-mod socket;
-pub mod transport;
+pub mod socket;
 
 #[cfg(test)]
 mod tests {

@@ -1,48 +1,42 @@
 use std::net::ToSocketAddrs;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
-use std::str::FromStr;
 use std::collections::HashMap;
-use std::rc::Rc;
+use std::sync::Once;
 
 use socket::Socket;
-use transport::Transport;
-use packet::{Packet, ID};
+use packet::{Packet, ID, decode_payload};
+use iron;
+use iron::method::Method::{Get, Post};
+use iron::request::Request;
+use iron::response::Response;
+use iron::middleware::Handler;
+use iron::headers::{Header, Cookie};
+use iron::IronResult;
+use iron::status;
+use iron::error::IronError;
 use url::Url;
-use hyper::server::{Handler, Request, Response};
-use hyper::method::Method;
-use hyper::status::StatusCode;
-use hyper::header::{Header, Cookie};
 
-pub struct Server<A: ToSocketAddrs, C: Transport> {
-    addr: Arc<A>,
-    clients: Arc<RwLock<HashMap<Rc<String>, Socket<C>>>>,
-    on_connection: Arc<RwLock<Option<Box<Fn(Socket<C>) + 'static>>>>,
-    ping_timeout: Arc<Duration>, // seconds
+pub struct Server {
+    clients: Arc<RwLock<HashMap<Arc<String>, Arc<Socket>>>>,
+    on_connection: Arc<RwLock<Option<Box<Fn(Arc<Socket>) + 'static>>>>,
+    ping_timeout: Duration, // seconds
 }
 
-unsafe impl<T: ToSocketAddrs, C: Transport> Send for Server<T, C> {}
-unsafe impl<T: ToSocketAddrs, C: Transport> Sync for Server<T, C> {}
+unsafe impl Send for Server {}
+unsafe impl Sync for Server {}
 
-const CLOSE: [u8; 5] = [99, 108, 111, 115, 101];
-//                     'c'  'l'  'o'  's'  'e'
-
-impl<A: ToSocketAddrs, C: Transport> Server<A, C> {
-    pub fn new_with_timeout(addr: A, timeout: Duration) -> Server<A, C> {
+impl Server {
+    pub fn new(timeout: Duration) -> Server {
         Server {
-            addr: Arc::new(addr),
             clients: Arc::new(RwLock::new(HashMap::new())),
             on_connection: Arc::new(RwLock::new(None)),
-            ping_timeout: Arc::new(timeout),
+            ping_timeout: timeout,
         }
     }
 
-    pub fn new(addr: A) -> Server<A, C> {
-        Server::new_with_timeout(addr, Duration::from_millis(60000))
-    }
-
     pub fn on_connection<F>(&mut self, f: F)
-        where F: Fn(Socket<C>) + 'static
+        where F: Fn(Arc<Socket>) + 'static
     {
         let mut data = self.on_connection.write().unwrap();
         if let Some(ref b) = *data {
@@ -57,45 +51,96 @@ impl<A: ToSocketAddrs, C: Transport> Server<A, C> {
         }
     }
 
-
-    fn open_connection(&self, req: &Request, res: &Response) {}
-}
-
-fn get_sid(c: Cookie) -> Option<String> {
-    for pair in c.0 {
-        if pair.name == "engine-io" {
-            return Some(pair.value);
+    fn get_sid(c: Cookie) -> Option<String> {
+        for pair in c.0 {
+            if pair.name == "engine-io" {
+                return Some(pair.value);
+            }
         }
+
+        None
     }
 
-    None
+    pub fn get_socket(&self, c: Cookie) -> Option<Arc<Socket>> {
+        for pair in c.0 {
+            if pair.name == "engine-io" {
+                let map = self.clients.read().unwrap();
+                return match map.get(&pair.value) {
+                    Some(so) => Some(so.clone()),
+                    None => None,
+                };
+            }
+
+        }
+        None
+    }
+
+    pub fn remove_socket(&self, sid: String) {
+        let mut map = self.clients.write().unwrap();
+        map.remove(&sid);
+    }
+
+    fn open_connection(&self, req: &Request) -> IronResult<Response> {
+        Ok(Response::new())
+    }
 }
 
-impl<A: ToSocketAddrs, C: Transport> Handler for Server<A, C> {
-    fn handle(&self, mut req: Request, mut res: Response) {
-        let cookie_h = match req.headers.get_raw("Cookie") {
+
+impl Handler for Server {
+    fn handle(&self, req: &mut Request) -> IronResult<Response> {
+        let cookies_raw = match req.headers.get_raw("Cookie") {
             Some(c) => c,
-            None => return,
+            None => return self.open_connection(req),
         };
-        let cookie = match Cookie::parse_header(cookie_h) {
-            Ok(c) => c,
-            _ => {
-                self.open_connection(&req, &res);
-                return;
-            }
+        let so: Arc<Socket> = match self.get_socket(itry!(Cookie::parse_header(cookies_raw))) {
+            Some(so) => so,
+            None => return self.open_connection(req),
         };
-        match req.method {
-            Method::Get => {}
 
+        match req.method {
+            Post => {
+                let url: Url = req.url.clone().into_generic_url();
+                let query = url.query_pairs().into_owned();
+                for (q, val) in query {
+                    if q == "d" {
+                        // POSTing data
+                        val.replace("\\n", "\n");
+                        match decode_payload(val.into_bytes(), so.b64(), so.xhr2()) {
+                            Ok(packets) => {
+                                for packet in packets {
+                                    match packet.id {
+                                        ID::Close => so.close(),
+                                        ID::Pong => so.reset_timeout(),
+                                        ID::Message => so.call_on_message(&packet.data),
+                                        _ => {
+                                            // handle upgrade}
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                let mut res = Response::new();
+                                res.status = Some(status::BadRequest);
+                                return Ok(res);
+                            }
+                        }
+                    }
+                }
+
+                let mut res = Response::new();
+                res.status = Some(status::BadRequest);
+                Ok(res)
+            }
+            Get => {
+                let payload = so.encode_write_buffer();
+                let res = Response::with(payload);
+                Ok(res)
+            }
             _ => {
-                *res.status_mut() = StatusCode::MethodNotAllowed;
+                let mut res = Response::new();
+                res.status = Some(status::MethodNotAllowed);
+                Ok(res)
             }
         }
     }
 }
-// impl<A: ToSocketAddrs> Factory for Server<A> {
-//     type Handler = Socket;
-//     fn connection_made(&mut self, s: Sender) -> Socket {
-//         Socket::new()
-//     }
-// }
