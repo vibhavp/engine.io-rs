@@ -5,6 +5,7 @@ extern crate url;
 extern crate rustc_serialize as serialize;
 extern crate crypto;
 extern crate modifier;
+extern crate cookie;
 
 pub mod packet;
 pub mod server;
