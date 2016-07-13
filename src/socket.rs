@@ -31,10 +31,9 @@ unsafe impl Sync for Socket {}
 
 impl Socket {
     #[doc(hidden)]
-    pub fn new(transport: Transport,
+    pub fn new(sid: Arc<String>,
+               transport: Transport,
                b64: bool,
-               xhr2: bool,
-               sid: Arc<String>,
                jsonp: Option<i32>)
                -> Socket {
         Socket {
@@ -44,7 +43,7 @@ impl Socket {
             closed: AtomicBool::new(false),
             b64: b64,
             jsonp: jsonp,
-            xhr2: xhr2,
+            xhr2: !b64,
             on_close: Arc::new(RwLock::new(None)),
             on_message: Arc::new(RwLock::new(None)),
             on_packet: Arc::new(RwLock::new(None)),
