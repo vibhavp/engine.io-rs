@@ -2,7 +2,7 @@ use std::str;
 use std::vec::IntoIter;
 use std::time::Duration;
 use std::fmt;
-use std::fmt::{Display, Debug, Formatter};
+use std::fmt::{Display, Formatter};
 
 use rand::os::OsRng;
 use iron::request::Request;
