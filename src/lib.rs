@@ -14,7 +14,7 @@
 //!         so.on_message(|m| {
 //!             println!("message: {}", String::from_utf8(m).unwrap());
 //!         });
-//!         so.send("Hello, world!")
+//!         so.send(("Hello, world!").as_bytes().to_vec())
 //!     });
 //!
 //!     println!("listening");
