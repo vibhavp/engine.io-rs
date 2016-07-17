@@ -1,5 +1,7 @@
 [package]
 name = "engine-io"
+description = "An engine.io library for Iron."
+repository = "https://github.com/vibhavp/engine.io-rs"
 version = "0.1.0"
 authors = ["Vibhav Pant <vibhavp@gmail.com>"]
 license = "MIT"
