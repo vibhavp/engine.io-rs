@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::mpsc::{Sender, Receiver};
 
-use packet::{Packet, encode_payload, Payload};
+use packet::{Packet, encode_payload, Payload, ID};
 
 #[derive(Clone)]
 #[doc(hidden)]
@@ -114,6 +114,7 @@ impl Socket {
         self.closed.load(Ordering::Relaxed)
     }
 
+    #[doc(hidden)]
     pub fn emit(&self, data: Packet) {
         if self.closed.load(Ordering::Relaxed) {
             return;
@@ -122,6 +123,14 @@ impl Socket {
         match self.transport {
             Transport::Polling(ref send, _) => send.send(data).unwrap(),
         }
+    }
+
+    /// Send a message to the client
+    pub fn send(&self, data: Vec<u8>) {
+        self.emit(Packet{
+            id: ID::Message,
+            data: data
+        })
     }
 
     /// Set callback for when a packet is sent to the client (message, ping)
