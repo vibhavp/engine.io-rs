@@ -1,4 +1,5 @@
 //! ## Hello World
+//!
 //! ```no_run
 //! extern crate engine_io;
 //! extern crate iron;
@@ -19,7 +20,7 @@
 //!     println!("listening");
 //!     Iron::new(s).http("localhost:3000").unwrap();
 //! }
-//!```
+//! ```
 
 #[macro_use]
 extern crate iron;
