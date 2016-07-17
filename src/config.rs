@@ -24,7 +24,7 @@ pub struct Config {
     pub cookie_path: Option<String>,
     /// Generate a socket id. Takes an Iron `Request`, and returns the id String.
     /// Default value is `generate_id`
-    pub generate_id: Arc<Box<Fn(&Request) -> String>>
+    pub generate_id: Arc<Box<Fn(&Request) -> String>>,
 }
 
 /// Default value of `generate_id`
@@ -41,7 +41,7 @@ impl Default for Config {
             ping_interval: Duration::from_millis(25000),
             cookie: Some(String::from_str("io").unwrap()),
             cookie_path: None,
-            generate_id: Arc::new(Box::new(generate_id))
+            generate_id: Arc::new(Box::new(generate_id)),
         }
     }
 }

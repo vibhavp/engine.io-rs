@@ -1,4 +1,5 @@
-#[macro_use] extern crate iron;
+#[macro_use]
+extern crate iron;
 extern crate rand;
 extern crate url;
 extern crate rustc_serialize as serialize;
@@ -7,7 +8,8 @@ extern crate modifier;
 extern crate cookie;
 extern crate time;
 extern crate hyper;
-#[macro_use] extern crate log;
+#[macro_use]
+extern crate log;
 
 pub mod packet;
 pub mod server;
