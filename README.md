@@ -8,4 +8,3 @@ engine.io-rs
 
 An engine.io library for Iron. For the moment, the only supported transport is
 JSONP. WIP.
-
