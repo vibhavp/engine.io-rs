@@ -2,7 +2,6 @@ use std::time::Instant;
 use std::sync::{RwLock, Mutex, Arc};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::HashMap;
-use std::str::FromStr;
 use std::sync::mpsc::{Sender, Receiver};
 
 use packet::{Packet, encode_payload, Payload, ID};
@@ -13,16 +12,17 @@ pub enum Transport {
     Polling(Sender<Packet>, Arc<Mutex<Receiver<Packet>>>),
 }
 
+#[derive(Clone)]
 pub struct Socket {
     transport: Transport,
     sid: Arc<String>,
     last_pong: Arc<RwLock<Instant>>,
     last_ping: Arc<RwLock<Instant>>,
-    closed: AtomicBool,
+    closed: Arc<AtomicBool>,
     b64: bool,
     xhr2: bool,
     jsonp: Option<i32>,
-    client_map: Arc<RwLock<HashMap<Arc<String>, Arc<Socket>>>>,
+    client_map: Arc<RwLock<HashMap<Arc<String>, Socket>>>,
     on_close: Arc<RwLock<Option<Box<Fn(&str) + 'static>>>>,
     on_message: Arc<RwLock<Option<Box<Fn(Vec<u8>) + 'static>>>>,
     on_packet: Arc<RwLock<Option<Box<Fn(Packet) + 'static>>>>,
@@ -36,7 +36,7 @@ impl Socket {
     #[doc(hidden)]
     pub fn new(sid: Arc<String>,
                transport: Transport,
-               client_map: Arc<RwLock<HashMap<Arc<String>, Arc<Socket>>>>,
+               client_map: Arc<RwLock<HashMap<Arc<String>, Socket>>>,
                b64: bool,
                jsonp: Option<i32>)
                -> Socket {
@@ -45,7 +45,7 @@ impl Socket {
             sid: sid,
             last_pong: Arc::new(RwLock::new(Instant::now())),
             last_ping: Arc::new(RwLock::new(Instant::now())),
-            closed: AtomicBool::new(false),
+            closed: Arc::new(AtomicBool::new(false)),
             b64: b64,
             jsonp: jsonp,
             xhr2: !b64,
@@ -58,7 +58,7 @@ impl Socket {
     }
 
     pub fn id(&self) -> String {
-        String::from_str(self.sid.clone().as_str()).unwrap()
+        self.sid.clone().as_str().to_string()
     }
 
     #[doc(hidden)]

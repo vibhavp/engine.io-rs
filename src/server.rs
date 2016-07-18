@@ -30,8 +30,8 @@ use time;
 
 #[derive(Clone)]
 pub struct Server {
-    clients: Arc<RwLock<HashMap<Arc<String>, Arc<Socket>>>>,
-    on_connection: Arc<RwLock<Option<Box<Fn(Arc<Socket>) + 'static>>>>,
+    clients: Arc<RwLock<HashMap<Arc<String>, Socket>>>,
+    on_connection: Arc<RwLock<Option<Box<Fn(Socket) + 'static>>>>,
     ping_loop_started: Arc<AtomicBool>,
     config: Arc<Config>,
 }
@@ -85,7 +85,7 @@ impl Server {
     }
 
     pub fn on_connection<F>(&self, f: F)
-        where F: Fn(Arc<Socket>) + 'static
+        where F: Fn(Socket) + 'static
     {
         let mut data = self.on_connection.write().unwrap();
         if let Some(ref b) = *data {
@@ -105,7 +105,7 @@ impl Server {
         map.clear();
     }
 
-    pub fn get_socket(&self, c: Cookie) -> Option<Arc<Socket>> {
+    pub fn get_socket(&self, c: Cookie) -> Option<Socket> {
         for pair in c.0 {
             if pair.name == "io" {
                 let map = self.clients.read().unwrap();
@@ -171,7 +171,7 @@ impl Server {
         };
 
 
-        let so = Arc::new(Socket::new(sid.clone(), transport, self.clients.clone(), b64, jsonp));
+        let so = Socket::new(sid.clone(), transport, self.clients.clone(), b64, jsonp);
         self.clients.write().unwrap().insert(sid.clone(), so.clone());
         // if transport is not polling
         // so.emit(open_json(sid.clone(), Duration::from_secs(2)));
@@ -270,7 +270,7 @@ impl Handler for Server {
             Some(c) => c,
             None => return self.open_connection(req),
         };
-        let so: Arc<Socket> = match self.get_socket(itry!(Cookie::parse_header(cookies_raw))) {
+        let so: Socket = match self.get_socket(itry!(Cookie::parse_header(cookies_raw))) {
             Some(so) => so,
             None => return self.open_connection(req),
         };
