@@ -24,9 +24,9 @@ pub struct Socket {
     jsonp: Option<i32>,
     client_map: Arc<RwLock<HashMap<Arc<String>, Socket>>>,
     on_close: Arc<RwLock<Option<Box<Fn(&str) + 'static>>>>,
-    on_message: Arc<RwLock<Option<Box<Fn(Vec<u8>) + 'static>>>>,
+    on_message: Arc<RwLock<Option<Box<Fn(&[u8]) + 'static>>>>,
     on_packet: Arc<RwLock<Option<Box<Fn(Packet) + 'static>>>>,
-    on_flush: Arc<RwLock<Option<Box<Fn(Vec<Packet>) + 'static>>>>,
+    on_flush: Arc<RwLock<Option<Box<Fn(&[Packet]) + 'static>>>>,
 }
 
 unsafe impl Send for Socket {}
@@ -101,7 +101,7 @@ impl Socket {
     }
 
     #[inline(always)]
-    pub fn close(&self, reason: &str) {
+    pub fn close(&mut self, reason: &str) {
         self.closed.store(true, Ordering::Relaxed);
         let data = self.client_map.clone();
         let mut map = data.write().unwrap();
@@ -138,20 +138,14 @@ impl Socket {
         where F: Fn(Packet) + 'static
     {
         let mut func = self.on_packet.write().unwrap();
-        if let Some(ref b) = *func {
-            drop(b)
-        }
         *func = Some(Box::new(f));
     }
 
     /// Set callback for when the write buffer is flushed
     pub fn on_flush<F>(&self, f: F)
-        where F: Fn(Vec<Packet>) + 'static
+        where F: Fn(&[Packet]) + 'static
     {
         let mut func = self.on_flush.write().unwrap();
-        if let Some(ref b) = *func {
-            drop(b)
-        }
         *func = Some(Box::new(f))
     }
 
@@ -160,31 +154,25 @@ impl Socket {
         where F: Fn(&str) + 'static
     {
         let mut data = self.on_close.write().unwrap();
-        if let Some(ref b) = *data {
-            drop(b);
-        }
         *data = Some(Box::new(f));
     }
 
     /// Set callback for when client sends a message
     pub fn on_message<F>(&self, f: F)
-        where F: Fn(Vec<u8>) + 'static
+        where F: Fn(&[u8]) + 'static
     {
         let mut data = self.on_message.write().unwrap();
-        if let Some(ref b) = *data {
-            drop(b);
-        }
         *data = Some(Box::new(f));
     }
 
     #[inline]
     #[doc(hidden)]
-    pub fn call_on_message(&self, data: &Vec<u8>) {
+    pub fn call_on_message(&self, data: &[u8]) {
         if self.closed() {
             return;
         }
         if let Some(ref func) = *self.on_message.read().unwrap() {
-            func(data.clone())
+            func(data)
         }
     }
 
@@ -209,13 +197,12 @@ impl Socket {
             packets.push(packet)
         }
 
-        let payload = encode_payload(&packets, self.jsonp, self.b64, self.xhr2);
-        self.call_on_flush(packets);
-        payload
+        self.call_on_flush(packets.as_slice());
+        encode_payload(&packets, self.jsonp, self.b64, self.xhr2)
     }
 
     #[inline]
-    fn call_on_flush(&self, packets: Vec<Packet>) {
+    fn call_on_flush(&self, packets: &[Packet]) {
         if self.closed() {
             return;
         }

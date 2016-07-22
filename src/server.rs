@@ -270,7 +270,7 @@ impl Handler for Server {
             Some(c) => c,
             None => return self.open_connection(req),
         };
-        let so: Socket = match self.get_socket(itry!(Cookie::parse_header(cookies_raw))) {
+        let mut so: Socket = match self.get_socket(itry!(Cookie::parse_header(cookies_raw))) {
             Some(so) => so,
             None => return self.open_connection(req),
         };
