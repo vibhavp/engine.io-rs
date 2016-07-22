@@ -12,7 +12,7 @@
 //!     s.on_connection(|so| {
 //!         println!("connected to {}", so.id());
 //!         so.on_message(|m| {
-//!             println!("message: {}", String::from_utf8(m).unwrap());
+//!             println!("message: {}", String::from_utf8(m.to_vec()).unwrap());
 //!         });
 //!         so.send(("Hello, world!").as_bytes().to_vec())
 //!     });
