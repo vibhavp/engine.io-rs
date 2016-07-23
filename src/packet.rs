@@ -164,7 +164,7 @@ pub fn encode_payload(packets: &Vec<Packet>,
 
         if (b64 || !xhr2) && is_binary {
             let base64_data = packet.data.to_base64(Config {
-                char_set: CharacterSet::UrlSafe,
+                char_set: CharacterSet::Standard,
                 newline: Newline::LF,
                 pad: true,
                 line_length: None,
