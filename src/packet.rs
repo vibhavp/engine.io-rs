@@ -2,13 +2,14 @@ use std::str;
 use std::vec::IntoIter;
 use std::fmt;
 use std::fmt::{Display, Formatter};
-use std::string::ToString;
+use std::string::{FromUtf8Error, ToString};
+use std::num::ParseIntError;
 
 use iron::response::Response;
 use serialize::base64::{FromBase64, ToBase64, Config, CharacterSet, Newline, FromBase64Error};
 use modifier::Modifier;
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ID {
     Open = 0,
     Close = 1,
@@ -19,7 +20,7 @@ pub enum ID {
     Noop = 6,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub struct Packet {
     pub id: ID,
     pub data: Vec<u8>,
@@ -34,6 +35,8 @@ pub enum Error {
     EmptyPacket,
     FromBase64Error(FromBase64Error),
     Utf8Error(str::Utf8Error),
+    FromUtf8Error(FromUtf8Error),
+    ParseIntError(ParseIntError),
 }
 
 impl Display for Error {
@@ -46,8 +49,26 @@ impl Display for Error {
             &Error::EmptyPacket => write!(f, "Empty Packet"),
             &Error::FromBase64Error(e) => write!(f, "FromBase64Error: {}", e),
             &Error::Utf8Error(e) => write!(f, "Utf8Error: {}", e),
-            // _ => {write!(f, "oops")},
+             _ => {write!(f, "oops")},
         }
+    }
+}
+
+impl From<FromBase64Error> for Error {
+    fn from(e: FromBase64Error) -> Error {
+        Error::FromBase64Error(e)
+    }
+}
+
+impl From<FromUtf8Error> for Error {
+    fn from(e: FromUtf8Error) -> Error {
+        Error::FromUtf8Error(e)
+    }
+}
+
+impl From<ParseIntError> for Error {
+    fn from(e: ParseIntError) -> Error {
+        Error::ParseIntError(e)
     }
 }
 
@@ -66,36 +87,28 @@ fn u8_to_id(u: u8) -> Result<ID, Error> {
 }
 
 impl Packet {
-    fn from_bytes(bytes: &mut IntoIter<u8>, data_len: usize) -> Result<Packet, Error> {
-        let id;
+    pub fn from_bytes(bytes: &[u8]) -> Result<Packet, Error> {
+        if bytes.len() == 0 {
+            return Err(Error::EmptyPacket)
+        }
+
         let mut base64 = false;
-        match bytes.next() {
-            None => return Err(Error::IncompletePacket),
-            Some(n) => {
-                id = if n as char == 'b' {
-                    // base64
-                    base64 = true;
-                    match bytes.next() {
-                        None => return Err(Error::IncompletePacket),
-                        Some(n) => try!(u8_to_id(n)),
-                    }
-                } else {
-                    try!(u8_to_id(n))
-                }
+        let id = if bytes[0] == b'b' {
+            base64 = true;
+            if bytes.len() < 1 {
+                return Err(Error::IncompletePacket)
             }
-        }
+            try!(u8_to_id(bytes[1]))
+        } else {
+            try!(u8_to_id(bytes[0]))
+        };
+        let mut data = Vec::new();
 
-        let mut cur = 0;
-        let mut data = Vec::with_capacity(data_len - 1);
-        while cur < data_len - 1 {
-            data.push(bytes.next().unwrap());
-            cur += 1;
-        }
-
-        Ok(Packet {
+        data.extend(bytes.iter().skip(1));
+        Ok(Packet{
             id: id,
             data: if base64 {
-                try!(data.from_base64().map_err(|e| Error::FromBase64Error(e)))
+                try!(data.from_base64())
             } else {
                 data
             },
@@ -203,40 +216,42 @@ pub fn decode_payload(data: Vec<u8>, b64: bool, xhr2: bool) -> Result<Vec<Packet
     }
 
     let mut packets = Vec::new();
-    let mut parsing_length = true;
 
     if xhr2 {
 
     } else {
-        let mut len: usize = 0;
         let mut data_iter: IntoIter<u8> = data.into_iter();
-        while let Some(c) = data_iter.next() {
-            if c as char == ':' {
-                parsing_length = false;
-                // Check for incomplete payload
-                if data_iter.len() < len {
-                    return Err(Error::IncompletePacket);
-                }
-
-                packets.push(try!(Packet::from_bytes(&mut data_iter, len)));
-            } else {
-                parsing_length = true;
-                if let Some(n) = (c as char).to_digit(10) {
-                    if n > 9 {
-                        return Err(Error::InvalidLengthDigit(n));
-                    };
-                    len = (len * 10) + n as usize;
-                } else {
-                    // Invalid length character
-                    return Err(Error::InvalidLengthCharacter(c));
-                }
+        while data_iter.by_ref().len() != 0 {
+            let len = try!(usize::from_str_radix(&try!(
+                String::from_utf8(data_iter.by_ref().
+                                  take_while(|c| *c != b':').
+                                  collect::<Vec<u8>>())), 10));
+            if len > data_iter.by_ref().len() {
+                return Err(Error::IncompletePacket);
             }
+            packets.push(try!(Packet::from_bytes(&data_iter.by_ref().take(len).
+                                                collect::<Vec<u8>>())))
         }
     }
 
-    if parsing_length {
-        Err(Error::IncompletePacket)
-    } else {
-        Ok(packets)
+    Ok(packets)
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::{decode_payload, ID};
+    #[test]
+    fn it_works() {
+        let packets = decode_payload("6:4Hello11:4HelloWorld".to_string().into_bytes(), true, false).unwrap();
+        assert_eq!(packets[0].id, ID::Message);
+        assert_eq!(packets[0].data, ("Hello".to_string().into_bytes()));
+        assert_eq!(packets[1].id, ID::Message);
+        assert_eq!(packets[1].data, ("HelloWorld".to_string().into_bytes()));
+
+        let mut err = decode_payload("asd:asd".to_string().into_bytes(), true, false);
+        assert!(err.is_err());
+        err = decode_payload("10:2asd".to_string().into_bytes(), true, false);
+        assert!(err.is_err());
     }
 }
