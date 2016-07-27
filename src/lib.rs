@@ -39,9 +39,3 @@ pub mod packet;
 pub mod server;
 pub mod socket;
 pub mod config;
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {}
-}
