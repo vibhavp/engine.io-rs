@@ -161,6 +161,7 @@ impl Server {
                     so.reset_timeout();
                     let mut res = Response::new();
                     let cookie = CookiePair::new(String::from_str("io").unwrap(), s.clone());
+                    res.status = Some(status::Ok);
                     // TODO: Set cookie path
                     res.headers.set(SetCookie(vec![cookie]));
                     return Ok(res);
